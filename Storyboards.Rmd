@@ -1,0 +1,610 @@
+---
+title: "Suburban Report - Q4 2019 "
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    social: menu
+    source: embed
+    theme: bootstrap
+    logo: C:/Users/reinaldo.viccini/Documents/jlllogoflex.png
+    
+    #bootstrap
+    #flatly
+    #paper , dont like
+    #simplex 
+    #yeti , not for this
+    #cerulean , not for this
+    #journal, dont like
+    #readable, dont like
+    #spacelab , dont like
+    #cosmo , default
+    #lumen
+    #sandstone , green dont like
+    #united , purple dont like
+---
+
+```{r setup, include=FALSE}
+library("flexdashboard")
+library("pdftools")
+library("tidyverse")
+library("ggplot2")
+library("ggthemes")
+library("gridExtra")
+library("dplyr")
+library("RColorBrewer")
+library("plotly")
+library("dygraphs")
+library("Quandl")
+library("kableExtra")
+library("cansim") #Stats Canada API! Great!
+
+# Reading Historical Data from JLL
+
+Histdata<-read.csv("C:/Users/reinaldo.viccini/Desktop/Desktop Folder/Historical Data of Office Research/CSV Version/Historical Data Vacancies 20193.csv",header = TRUE,sep=",")
+
+#Fixing up dates so I can use Time Series., the format part is the most important
+Histdata$Quarter<- as.character(Histdata$Date)
+Histdata$Quarter<-as.Date(paste("01-", Histdata$Quarter, sep = ""), format = "%d-%y-%b")
+
+#Period of Interest, this is what I change (Be careful with the format part it changes everytime I open the csv)
+Period<-"2019-09-01"
+
+#Ordering submarket by Area
+Histdata$Submarket <- factor(Histdata$Submarket, levels = rev(c("Downtown","West Core", "Central Core","East Core","Suburbs","Beltline","North","Northwest","Northeast","South" ,"Greater Calgary" )))
+
+#################################################################################################
+# JLL National DAta Comparing Calgary with other cities
+Histdatanational<-read.csv("C:/Users/reinaldo.viccini/Desktop/Desktop Folder/Historical Data of Office Research/CSV Version/HistNationalVac.csv",header = TRUE,sep=",")
+str(Histdatanational)
+
+#Fixing dates
+Histdatanational$date2<- as.character(Histdatanational$Date)
+Histdatanational$date2<- paste("01-", Histdatanational$date2, sep = "")
+Histdatanational$date2<-as.Date(Histdatanational$date2, format = "%d-%y-%b")
+
+#Delete non-Important Variables
+Histdatanational<-Histdatanational[,-c(1,2,3)]
+Calgary<-Histdatanational[,c(20)]
+
+#TRansformed into a TS object, When Frequency is 4 it becomes a quarter.
+Calgary<-ts(Calgary,frequency=4, start=c(2010),end=c(2019))
+
+#Quandl Data for House Starts in Calgary, Interest rates ,etc
+Quandl.api_key("YBgVd_yw_nVEY_x2fzQw")
+Housestarts<- Quandl("CMHC/HSDAA_AB", start_date="2001-12-31", end_date="2019-12-31")
+Housestarts$Date<- as.character(Housestarts$Date)
+Housestarts$Date<-as.Date(paste(Housestarts$Date, format = "%Y-%m-%d"))
+
+Shorttermbonds<- Quandl("BOC/V39059", start_date="2001-12-31", end_date="2019-12-31")
+Shorttermbonds$Date<- as.character(Shorttermbonds$Date)
+Shorttermbonds$Date<-as.Date(paste(Shorttermbonds$Date, format = "%Y-%m-%d"))
+
+ExchangerateUSDCAD<- Quandl("FED/RXI_N_B_CA", start_date="2001-12-31", end_date="2019-12-31")
+ExchangerateUSDCAD$Date<- as.character(ExchangerateUSDCAD$Date)
+ExchangerateUSDCAD$Date<-as.Date(paste(ExchangerateUSDCAD$Date, format = "%Y-%m-%d"))
+ExchangerateUSDCAD$Value<-1/ExchangerateUSDCAD$Value
+
+oil<- Quandl("EIA/PET_RWTC_D", start_date="2001-12-31", end_date="2019-12-31")
+oil$Date<- as.character(oil$Date)
+oil$Date<-as.Date(paste(oil$Date, format = "%Y-%m-%d"))
+
+
+#############################################################
+#Stats Canada Data, takes ages to load so only do this once.
+#get_cansim_table_overview("14-10-0287-03")
+#Unemployed<-get_cansim("14-10-0287-03") %>% normalize_cansim_values
+#Unemployed$GEO<-as.factor(Unemployed$GEO)
+#Unemployed$Sex<-as.factor(Unemployed$Sex)
+#Unemployed$Statistics<-as.factor(Unemployed$Statistics)
+#colnames(Unemployed)[4] <- "Interest"
+#Unemployed$Interest<-as.factor(Unemployed$Interest)
+#colnames(Unemployed)[8] <- "Type"
+#Unemployed$Type<-as.factor(Unemployed$Type)
+#colnames(Unemployed)[6] <- "Age"
+#Unemployed$Age<-as.factor(Unemployed$Age)
+#Unemployed2<-subset(Unemployed , GEO=="Alberta" & Interest=="Unemployment rate" & Type=="Seasonally adjusted" & Statistics=="Estimate")
+
+
+UnemploymentAlberta<-get_cansim_vector(c("Unemployment Rate"="v21581519"),
+                  start_time = "2000-01-01",
+                  end_time="2020-01-01")
+UnemploymentAlberta$REF_DATE<-as.Date(UnemploymentAlberta$REF_DATE,format="%Y-%m-%d")
+
+
+
+#GDP<-get_cansim("36-10-0402-01")
+
+
+GDPAlberta<-get_cansim_vector(c("GDP"="v62462994"),
+                  start_time = "1997-01-01",
+                  end_time="2018-01-01")
+GDPAlberta$REF_DATE<-as.Date(GDPAlberta$REF_DATE,format="%Y-%m-%d")
+
+```
+
+Q4 {.storyboard}
+=========================================
+
+### Net absorption numbers in per neighborhood in the suburbs saw the best
+
+
+```{r}
+Calgary<-subset(Histdata,Class=="Totals" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North"& Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" & Quarter==Period)
+Calgary$Sign<-as.factor(ifelse(Calgary$Total.net.absorption..s.f..>0,"Positive","Negative"))
+
+
+p<-ggplot(data = Calgary, aes(x=Submarket,y = Total.net.absorption..s.f../1000, fill= Sign,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Total Net Absorption S.F. : ",formatC(Calgary$Total.net.absorption..s.f.., format="f", big.mark=",", digits=0),"\n",
+                          "% of Inventory :",round((Calgary$Total.net.absorption..s.f../Calgary$Inventory..s.f..)*100,2),"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          sep="")))+
+  geom_bar(stat="identity")+coord_flip()+
+  theme_classic()+
+  xlab(" ")+ ylab("Square Feet (000')")+
+    theme(legend.position="bottom")+ scale_fill_manual(values=c("#E30613", "#000000","grey"))+theme(legend.title = element_blank())+ theme(legend.position = "none") + scale_y_continuous(limits=c(-250, 350))
+  
+
+ggplotly(p, tooltip = "text")
+
+```
+
+***
+
+- Suburban Calgary Vacancies are at their lowest level since 2017
+
+- Compose maps using arbitrary combinations of map tiles, markers, polygons, lines, popups, and GeoJSON.
+
+- Create maps right from the R console or RStudio
+
+- Embed maps in knitr/R Markdown documents and Shiny apps
+
+- Easily render Spatial objects from the sp package, or data frames with latitude/longitude columns
+
+- Use map bounds and mouse events to drive Shiny logic
+
+
+### Vacancy rates in suburban Calgary continue trending downwards and currently stand at their lowest levels since 2016
+
+```{r}
+Calgary<-subset(Histdata,Class=="Totals" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North" & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core")
+
+
+p<-ggplot(data = Calgary, aes(x = Quarter, y = Total.vacancy....*100, group = Submarket,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Vacancy Rate: ",Calgary$Total.vacancy....*100,"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          "Submarket : ",Calgary$Submarket,"\n",
+                          sep="")))+
+  geom_line(aes(linetype = Submarket, color = Submarket))+
+  theme_classic()+ xlab("Quarter")+ ylab("Vacancy Rate (%)")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Vacancy rates(%) for Class A Buildings in the Calgary")+
+  theme(legend.title=element_blank())+
+  scale_linetype_manual(values=c("solid", "solid","solid","solid","solid","solid","solid"))+
+  scale_size_manual(values=c(7, 2,2,1,1,1,1))+ scale_y_continuous(limits=c(0, 40))+ scale_color_brewer(palette="Dark2")
+
+p1<-ggplotly(p, tooltip = "text")
+
+
+p1$x$data[[1]]$name<-"South"
+p1$x$data[[2]]$name<-"Northeast"
+p1$x$data[[3]]$name<-"Northwest"
+p1$x$data[[4]]$name<-"Beltline"
+
+
+p1
+
+
+```
+
+***
+
+- Suburban Calgary Vacancies are at their lowest level since 2017
+
+- Compose maps using arbitrary combinations of map tiles, markers, polygons, lines, popups, and GeoJSON.
+
+- Create maps right from the R console or RStudio
+
+- Embed maps in knitr/R Markdown documents and Shiny apps
+
+- Easily render Spatial objects from the sp package, or data frames with latitude/longitude columns
+
+- Use map bounds and mouse events to drive Shiny logic
+
+
+### Gross Rents 
+
+```{r}
+
+Calgary<-subset(Histdata,Class=="Totals" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North"  & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" )
+
+
+
+p<-ggplot(data = Calgary, aes(x = Quarter, y = Average.direct.asking.gross.rent....p.s.f.., group = Submarket,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Average Asking Rents CAD : ",Calgary$Average.direct.asking.gross.rent....p.s.f..,"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          "Submarket : ",Calgary$Submarket,"\n",
+                          sep="")))+
+  geom_line(aes(linetype = Submarket, color = Submarket))+
+  theme_classic()+ xlab("Quarter")+ ylab("CAD per S.F.")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Gross Rents for All Buildings in the Calgary")+
+  theme(legend.title=element_blank())+
+  scale_linetype_manual(values=c("solid", "solid","solid","solid","solid","solid","solid"))+
+  scale_size_manual(values=c(7, 2,2,1,1,1,1))+ scale_y_continuous(limits=c(20, 55))+ scale_color_brewer(palette="Dark2")
+
+p1<-ggplotly(p, tooltip = "text")
+
+
+p1$x$data[[1]]$name<-"South"
+p1$x$data[[2]]$name<-"Northeast"
+p1$x$data[[3]]$name<-"Northwest"
+p1$x$data[[4]]$name<-"Beltline"
+
+
+p1
+
+```
+
+***
+
+- Me
+
+### Vacancies by submarket
+
+```{r}
+
+Calgary<-subset(Histdata,Class!="Totals" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North" & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" & Quarter==Period )
+
+p<-ggplot(data = Calgary, aes(x=Submarket,y = Total.vacancy..s.f../1000, fill= Class,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Total Vacant S.F. : ",formatC(Calgary$Total.vacancy..s.f.., format="f", big.mark=",", digits=0),"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          sep="")))+
+  geom_bar(stat="identity")+coord_flip()+
+  theme_classic()+
+  xlab("submarket")+ ylab("Square Feet (000')")+
+    theme(legend.position="bottom")+ scale_fill_manual(values=c("#08306b", "#6baed6","#c6dbef"))+ theme(legend.title = element_blank())+ scale_y_continuous(limits=c(0, 6000))
+
+ggplotly(p, tooltip = "text")
+
+```
+
+
+***
+
+```{r}
+Calgary<-Calgary[,c(3,4,7)]
+colnames(Calgary)[colnames(Calgary) == "Inventory..s.f.."] <- "Inventory"
+kable(Calgary) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+
+
+
+
+
+
+YTD {.storyboard}
+=========================================
+
+
+### YTD Net Absorption by Neighborhood
+
+```{r}
+Calgary<-subset(Histdata,Class=="Totals" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North" & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" & Quarter==Period )
+Calgary$Sign<-as.factor(ifelse(Calgary$YTD.total.net.absorption..s.f..>0,"Positive","Negative"))
+
+
+p<-ggplot(data = Calgary, aes(x=Submarket,y = YTD.total.net.absorption..s.f../1000, fill= Sign,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Total Net Absorption S.F. : ",formatC(Calgary$YTD.total.net.absorption..s.f.., format="f", big.mark=",", digits=0),"\n",
+                          "% of Inventory :",round((Calgary$Total.net.absorption..s.f../Calgary$Inventory..s.f..)*100,2),"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          sep="")))+
+  geom_bar(stat="identity")+coord_flip()+
+  theme_classic()+
+  xlab(" ")+ ylab("Square Feet (000')")+
+    theme(legend.position="bottom")+ scale_fill_manual(values=c("#E30613", "#000000","grey"))+ theme(legend.title = element_blank())+ theme(legend.position = "none")+ scale_y_continuous(limits=c(-250, 350))
+  
+
+
+
+ggplotly(p, tooltip = "text")
+
+```
+
+
+***
+
+- Me
+
+### YTD Net Absorption by Neighborhood for Class A Assets
+
+```{r}
+Calgary<-subset(Histdata,Class=="A" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North"  & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" & Quarter==Period )
+Calgary$Sign<-as.factor(ifelse(Calgary$YTD.total.net.absorption..s.f..>0,"Positive","Negative"))
+
+
+p<-ggplot(data = Calgary, aes(x=Submarket,y = YTD.total.net.absorption..s.f../1000, fill= Sign,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Total Net Absorption S.F. : ",formatC(Calgary$YTD.total.net.absorption..s.f.., format="f", big.mark=",", digits=0),"\n",
+                          "% of Inventory :",round((Calgary$Total.net.absorption..s.f../Calgary$Inventory..s.f..)*100,2),"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          sep="")))+
+  geom_bar(stat="identity")+coord_flip()+
+  theme_classic()+
+  xlab(" ")+ ylab("Square Feet (000')")+
+    theme(legend.position="bottom")+ scale_fill_manual(values=c("#E30613", "#000000","grey"))+ theme(legend.title = element_blank())+ theme(legend.position = "none")+ scale_y_continuous(limits=c(-250, 350))
+  
+
+
+
+ggplotly(p, tooltip = "text")
+
+```
+
+
+***
+
+- Me
+
+
+### YTD Net Absorption by Neighborhood for Class B Assets
+
+```{r}
+Calgary<-subset(Histdata,Class=="B" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North"  & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" & Quarter==Period  )
+Calgary$Sign<-as.factor(ifelse(Calgary$YTD.total.net.absorption..s.f..>0,"Positive","Negative"))
+
+
+p<-ggplot(data = Calgary, aes(x=Submarket,y = YTD.total.net.absorption..s.f../1000, fill= Sign,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Total Net Absorption S.F. : ",formatC(Calgary$YTD.total.net.absorption..s.f.., format="f", big.mark=",", digits=0),"\n",
+                          "% of Inventory :",round((Calgary$Total.net.absorption..s.f../Calgary$Inventory..s.f..)*100,2),"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          sep="")))+
+  geom_bar(stat="identity")+coord_flip()+
+  theme_classic()+
+  xlab(" ")+ ylab("Square Feet (000')")+
+    theme(legend.position="bottom")+ scale_fill_manual(values=c("#E30613", "#000000","grey"))+ theme(legend.title = element_blank())+ theme(legend.position = "none")+ scale_y_continuous(limits=c(-250, 350))
+
+
+
+  
+
+ggplotly(p, tooltip = "text")
+
+```
+
+***
+
+- Me
+
+
+### YTD Net Absorption by Neighborhood for Class C Assets
+
+```{r}
+Calgary<-subset(Histdata,Class=="C" & Submarket!="Greater Calgary" & Submarket!="Downtown" & Submarket!="Suburbs" & Submarket!="North" & Submarket!="West Core" & Submarket!="Central Core" & Submarket!="East Core" & Quarter==Period )
+Calgary$Sign<-as.factor(ifelse(Calgary$YTD.total.net.absorption..s.f..>0,"Positive","Negative"))
+
+
+p<-ggplot(data = Calgary, aes(x=Submarket,y = YTD.total.net.absorption..s.f../1000, fill= Sign,
+             text = paste("Date: ",Calgary$Quarter,"\n",
+                          "Total Net Absorption S.F. : ",formatC(Calgary$YTD.total.net.absorption..s.f.., format="f", big.mark=",", digits=0),"\n",
+                          "% of Inventory :",round((Calgary$Total.net.absorption..s.f../Calgary$Inventory..s.f..)*100,2),"\n",
+                          "Class : ",Calgary$Class,"\n",
+                          sep="")))+
+  geom_bar(stat="identity")+coord_flip()+
+  theme_classic()+
+  xlab(" ")+ ylab("Square Feet (000')")+
+    theme(legend.position="bottom")+ scale_fill_manual(values=c("#E30613", "#000000","grey"))+ theme(legend.title = element_blank())+ theme(legend.position = "none")+ scale_y_continuous(limits=c(-250, 350))
+  
+
+
+
+
+ggplotly(p, tooltip = "text")
+
+```
+
+***
+
+- Me
+
+
+
+
+Outlook {.storyboard}
+=========================================
+
+### New Projects in the city include the Poplar Centre, 19 royal Vista and the New University District
+
+```{r}
+library("leaflet")
+leaflet() %>%
+  addTiles() %>%
+  addMarkers(lng=-114.028252, lat=51.152667, popup="Hexagon Campus: 11063 14th Street NE")%>%
+  addMarkers(lng=-113.968759, lat=50.868499, popup="35 Cranford Way  SE")%>%
+  addMarkers(lng=-114.115751, lat=51.0673455, popup="The Hub: 2416 16 Avenue NW  SE")%>%
+  addMarkers(lng=-114.095144, lat=51.027065, popup="Spider Site: 3001 14th Street SW")%>%
+  addMarkers(lng=-114.000887, lat=51.096372, popup="The District at North Deerfoot: 2600-2650 48th Ave NE")%>%
+  addMarkers(lng=-114.069150, lat=51.005153, popup="Poplar Centre: 5512 Macleod Trail SE")%>%
+  addMarkers(lng=-113.977985, lat=51.109937, popup="Westwinds Business Campus Phase III: 3687 63rd Ave NE")%>%
+  addMarkers(lng=-114.148965, lat=51.079205, popup="University District: 23 East & West University Avenue NW")%>%
+  addMarkers(lng=-114.055855, lat=51.044021, popup="The Platform East Village")%>%
+  addMarkers(lng=-114.055855, lat=51.044021, popup="Shepard Station")
+
+
+```
+
+***
+
+- Only 2 new projects to be delivered
+
+- Compose maps using arbitrary combinations of map tiles, markers, polygons, lines, popups, and GeoJSON.
+
+- Create maps right from the R console or RStudio
+
+- Embed maps in knitr/R Markdown documents and Shiny apps
+
+- Easily render Spatial objects from the sp package, or data frames with latitude/longitude columns
+
+- Use map bounds and mouse events to drive Shiny logic
+
+### Housing Starts in Alberta
+
+```{r}
+p<-ggplot(data = Housestarts, aes(x = Date, y = Total,group=1,
+             text = paste("Date: ",Housestarts$Date,"\n",
+                          "Total Units : ",Housestarts$Total,"\n",
+                                                    sep="")))+
+  geom_line(color = "Red")+
+  theme_classic()+ xlab("Date")+ ylab("Total Number of Units.")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Gross Rents for All Buildings in the Calgary")+
+  theme(legend.title=element_blank())+
+  stat_smooth(method = glm, fullrange =TRUE, formula= y~poly(x,5)) +
+    scale_x_date(limits = c(as.Date("2001-12-31"), as.Date("2020-12-31")))
+
+ggplotly(p, tooltip = "text")
+
+```
+
+***
+- Housing Starts in Calgary contintue to Decline
+
+
+### Interest Rates Short Term (1-3 Year Bonds)
+
+
+```{r}
+p<-ggplot(data = Shorttermbonds, aes(x = Date, y = Value,group=1,
+             text = paste("Date: ",Shorttermbonds$Date,"\n",
+                          "Avg. Yield 1-3 Year Bonds: ",Shorttermbonds$Value,"\n",
+                                                    sep="")))+
+  geom_line(color = "Red")+
+  theme_classic()+ xlab("Date")+ ylab("Interest rate (%)")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Avg Yield (%)")+
+  theme(legend.title=element_blank())+
+  stat_smooth(method = glm, fullrange =TRUE, formula= y~poly(x,5)) +
+    scale_x_date(limits = c(as.Date("2001-12-31"), as.Date("2020-03-31")))
+
+ggplotly(p, tooltip = "text")
+
+
+
+
+
+
+```
+
+***
+- Housing Starts in Calgary contintue to Decline
+
+### Exchange Rate USD Dollar
+
+
+```{r}
+p<-ggplot(data = ExchangerateUSDCAD, aes(x = Date, y = Value,group=1,
+             text = paste("Date: ",ExchangerateUSDCAD$Date,"\n",
+                          "CAD/USD rate: ",ExchangerateUSDCAD$Value,"\n",
+                                                    sep="")))+
+  geom_line(color = "Red")+
+  theme_classic()+ xlab("Date")+ ylab("CAD/USD Spot Exchange")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Avg Yield (%)")+
+  theme(legend.title=element_blank())+
+  stat_smooth(method = glm, fullrange =TRUE, formula= y~poly(x,5)) +
+    scale_x_date(limits = c(as.Date("2001-12-31"), as.Date("2020-02-1")))
+
+ggplotly(p, tooltip = "text")
+
+
+```
+
+***
+- Housing Starts in Calgary contintue to Decline
+
+### Oil Prices
+
+```{r}
+p<-ggplot(data = oil, aes(x = Date, y = Value,group=1,
+             text = paste("Date: ",ExchangerateUSDCAD$Date,"\n",
+                          "Oil Price in USD: ",oil$Value,"\n",
+                                                    sep="")))+
+  geom_line(color = "Red")+
+  theme_classic()+ xlab("Date")+ ylab("Oil Price in USD")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Avg Yield (%)")+
+  theme(legend.title=element_blank())+
+  stat_smooth(method = glm, fullrange =TRUE, formula= y~poly(x,5)) +
+    scale_x_date(limits = c(as.Date("2001-12-31"), as.Date("2020-02-1")))
+
+ggplotly(p, tooltip = "text")
+
+
+```
+
+***
+- Housing Starts in Calgary contintue to Decline
+
+
+### Unemployment Alberta
+
+
+```{r}
+p<-ggplot(data = UnemploymentAlberta, aes(x =REF_DATE, y = VALUE,group=1,
+             text = paste("Date: ",UnemploymentAlberta$REF_DATE,"\n",
+                          "Unemploment Rate Alberta: ",UnemploymentAlberta$VALUE,"\n",
+                                                    sep="")))+
+  geom_line(color = "Red")+
+  theme_classic()+ xlab("Date")+ ylab("Unemployment rate (%)")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Avg Yield (%)")+
+  theme(legend.title=element_blank())+
+  stat_smooth(method = glm, fullrange =TRUE, formula= y~poly(x,5)) +
+    scale_x_date(limits = c(as.Date("2001-12-31"), as.Date("2020-02-1")))
+
+ggplotly(p, tooltip = "text")
+
+
+```
+
+***
+- Housing Starts in Calgary contintue to Decline
+
+
+
+### GDP Growth Alberta
+
+```{r}
+p<-ggplot(data = GDPAlberta, aes(x =REF_DATE, y = VALUE,group=1,
+             text = paste("Date: ",GDPAlberta$REF_DATE,"\n",
+                          "Unemploment Rate Alberta: ",GDPAlberta$VALUE,"\n",
+                                                    sep="")))+
+  geom_line(color = "Red")+
+  theme_classic()+ xlab("Date")+ ylab("GDP Albert in (000')")+
+    theme(axis.text.x=element_text(angle = -90, hjust = 0))+
+  theme(legend.position="bottom")+
+  ggtitle("", subtitle = "Avg Yield (%)")+
+  theme(legend.title=element_blank())+
+    scale_x_date(limits = c(as.Date("1997-01-01"), as.Date("2018-01-01")))
+
+ggplotly(p, tooltip = "text")
+
+
+```
+
+### Forecast
